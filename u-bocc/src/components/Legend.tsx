@@ -32,6 +32,32 @@ export default function Legend() {
         {/* Divider */}
         <div className="h-px bg-[#2a2a3a] w-full" />
 
+        {/* Operational Layers */}
+        <div>
+          <div className="text-[8px] font-bold text-[#6b6b80] uppercase tracking-wider mb-1.5">Operational Layers</div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <div className="flex items-center gap-1.5 text-[9px] font-medium text-[#e8e8f0]">
+              <span className="w-2.5 h-0.5 rounded bg-[#06d6a0]" />
+              <span>Metro Feeder</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-medium text-[#e8e8f0]">
+              <span className="w-2.5 h-0.5 rounded bg-[#4a9eff]" />
+              <span>Circular Ring</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-medium text-[#e8e8f0]">
+              <span className="w-2.5 h-0.5 rounded bg-[#ef476f]" />
+              <span>Express BRT</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-medium text-[#e8e8f0]">
+              <span className="w-2.5 h-0.5 rounded bg-[#ffd166]" />
+              <span>Suburban Conn</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-[#2a2a3a] w-full" />
+
         {/* Bus Status */}
         <div>
           <div className="text-[8px] font-bold text-[#6b6b80] uppercase tracking-wider mb-1.5">Bus Status</div>

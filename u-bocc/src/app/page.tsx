@@ -12,6 +12,15 @@ import RouteDecisionOverlay from '../components/RouteDecisionOverlay';
 import { useSimulation } from '../hooks/useSimulation';
 import { useRouteOverlay } from '../hooks/useRouteOverlay';
 import { Bus, Action } from '../types';
+import { useUBOCCStore } from '../store/ubocc-store';
+import { usePredictiveEngine } from '../hooks/usePredictiveEngine';
+import { useAnomalyDetector } from '../hooks/useAnomalyDetector';
+import { useWaitTimeEngine } from '../hooks/useWaitTimeEngine';
+import { useHeadwayEngine } from '../hooks/useHeadwayEngine';
+import { ReplayModeOverlay } from '../components/replay/ReplayModeOverlay';
+import { ROUTES } from '../data/compiledData';
+import { useEffect } from 'react';
+import { categorizeRoutes } from '../lib/computations/routeCategorizer';
 
 export default function DashboardPage() {
   const {
@@ -27,6 +36,56 @@ export default function DashboardPage() {
   } = useSimulation();
 
   const { overlay, showOverlay, dismissOverlay } = useRouteOverlay();
+
+  const { 
+    replayMode, 
+    activeReplaySession, 
+    currentFrameBuses,
+    setActiveBuses,
+    setRoutes,
+    currentView
+  } = useUBOCCStore();
+
+  // Sync simulation buses state to Zustand store
+  useEffect(() => {
+    setActiveBuses(buses);
+  }, [buses, setActiveBuses]);
+
+  // Sync static routes to Zustand store
+  useEffect(() => {
+    const rawRoutes = Object.values(ROUTES);
+    const categorizedRoutes = categorizeRoutes(rawRoutes);
+    setRoutes(categorizedRoutes);
+  }, [setRoutes]);
+
+  // Activate AI/ML computation engines
+  usePredictiveEngine();
+  useAnomalyDetector();
+  useWaitTimeEngine();
+  useHeadwayEngine();
+
+  // If in replay mode, render the replay buses instead of live simulation buses
+  const displayedBuses = replayMode && activeReplaySession
+    ? currentFrameBuses.map((b: any) => ({
+        id: b.busId,
+        route: activeReplaySession.routeId,
+        type: 'Ordinary' as const,
+        status: 'running' as const,
+        waypointIndex: 0,
+        waypointProgress: 0,
+        direction: 1 as (1 | -1),
+        lat: b.lat,
+        lng: b.lng,
+        heading: 0,
+        occupancy: 45,
+        speed: Math.round(b.speed),
+        currentStop: 'Replay Stop',
+        nextStop: 'Replay Next',
+        eta: 2,
+        directionLabel: 'Outbound' as const,
+        depot: 'Broadway',
+      }))
+    : buses;
 
   // Selected bus state
   const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
@@ -51,6 +110,19 @@ export default function DashboardPage() {
     depots: false,
     traffic: true,
   });
+
+  // Sync map layers with the active command center view
+  useEffect(() => {
+    if (currentView === 'normal') {
+      setLayers({ routes: true, hotspots: false, depots: false, traffic: false });
+    } else if (currentView === 'ops') {
+      setLayers({ routes: true, hotspots: false, depots: true, traffic: true });
+    } else if (currentView === 'ai') {
+      setLayers({ routes: true, hotspots: true, depots: false, traffic: true });
+    } else if (currentView === 'emergency') {
+      setLayers({ routes: true, hotspots: false, depots: false, traffic: false });
+    }
+  }, [currentView]);
 
   // Handle bus marker click
   const handleSelectBus = (bus: Bus) => {
@@ -130,15 +202,13 @@ export default function DashboardPage() {
       <div className="flex flex-1 w-full overflow-hidden relative">
         {/* 2. Left side layer controls */}
         <LeftSidebar 
-          layers={layers} 
-          setLayers={setLayers} 
-          liveBusCount={buses.filter(b => b.status === 'running').length} 
+          liveBusCount={displayedBuses.filter(b => b.status === 'running').length} 
         />
 
         {/* 3. Interactive Map (Leaflet Dark Theme) */}
         <div className="flex-1 h-full relative overflow-hidden">
           <MapView 
-            buses={buses} 
+            buses={displayedBuses} 
             depots={depots}
             layers={layers}
             highlightedRoute={highlightedRoute}
@@ -161,18 +231,22 @@ export default function DashboardPage() {
         </div>
 
         {/* 4. Right Sidebar Action console */}
-        <RightSidebar
-          actions={actions}
-          alerts={alerts}
-          depots={depots}
-          logs={logs}
-          onApproveAction={handleApproveAction}
-          onRejectAction={handleRejectAction}
-        />
+        {!replayMode && (
+          <RightSidebar
+            actions={actions}
+            depots={depots}
+            logs={logs}
+            onApproveAction={handleApproveAction}
+            onRejectAction={handleRejectAction}
+          />
+        )}
       </div>
 
       {/* 5. Bottom disruption marquee ticker */}
       <DisruptionTicker />
+
+      {/* 6. Simulation Replay Mode Controls & Interventions Overlay */}
+      <ReplayModeOverlay />
     </div>
   );
 }

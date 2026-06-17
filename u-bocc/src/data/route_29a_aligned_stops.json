@@ -1,0 +1,66 @@
+[
+  {
+    "stop_id": "S29A_1",
+    "stop_name": "Perambur Bus Terminus",
+    "lat": 13.1171,
+    "lng": 80.2494,
+    "stop_sequence": 1,
+    "waypoint_index": 0
+  },
+  {
+    "stop_id": "S29A_2",
+    "stop_name": "Jamalaya",
+    "lat": 13.10456,
+    "lng": 80.2529,
+    "stop_sequence": 2,
+    "waypoint_index": 132
+  },
+  {
+    "stop_id": "S29A_3",
+    "stop_name": "Otteri",
+    "lat": 13.09508,
+    "lng": 80.24777,
+    "stop_sequence": 3,
+    "waypoint_index": 178
+  },
+  {
+    "stop_id": "S29A_4",
+    "stop_name": "Pursaiwalkam",
+    "lat": 13.08612,
+    "lng": 80.26168,
+    "stop_sequence": 4,
+    "waypoint_index": 282
+  },
+  {
+    "stop_id": "S29A_5",
+    "stop_name": "Egmore",
+    "lat": 13.07751,
+    "lng": 80.26139,
+    "stop_sequence": 5,
+    "waypoint_index": 395
+  },
+  {
+    "stop_id": "S29A_6",
+    "stop_name": "Pudupet",
+    "lat": 13.07,
+    "lng": 80.265,
+    "stop_sequence": 6,
+    "waypoint_index": 480
+  },
+  {
+    "stop_id": "S29A_7",
+    "stop_name": "Bells Road",
+    "lat": 13.065,
+    "lng": 80.276,
+    "stop_sequence": 7,
+    "waypoint_index": 543
+  },
+  {
+    "stop_id": "S29A_8",
+    "stop_name": "Anna Square",
+    "lat": 13.06426,
+    "lng": 80.28337,
+    "stop_sequence": 8,
+    "waypoint_index": 577
+  }
+]

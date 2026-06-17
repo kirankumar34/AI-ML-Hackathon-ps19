@@ -1,12 +1,16 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, Polygon, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Bus, Depot, Route } from '../types';
 import { ROUTES } from '../data/compiledData';
+import { useUBOCCStore } from '../store/ubocc-store';
+import { classifyRoute, getCategoryColor } from '../data/buses';
 import { ROUTE_MAP } from '../data/routes';
+import ANNA_SALAI_GEOMETRY from '../data/anna_salai.json';
+import GST_ROAD_GEOMETRY from '../data/gst_road.json';
 
 interface MapComponentProps {
   buses: Bus[];
@@ -25,37 +29,58 @@ interface MapComponentProps {
   onSelectBus: (bus: Bus) => void;
 }
 
-// Congestion/Traffic corridors coordinates
 const TRAFFIC_CORRIDORS = {
-  annaSalai: [
-    [13.0827, 80.2707] as [number, number], // Central
-    [13.0783, 80.2599] as [number, number], // Egmore
-    [13.0500, 80.2500] as [number, number], // Anna Salai Center
-    [13.0317, 80.2307] as [number, number], // T Nagar
-    [13.0214, 80.2231] as [number, number], // Saidapet
-    [13.0067, 80.2206] as [number, number], // Guindy
-  ],
-  gstRoad: [
-    [13.0067, 80.2206] as [number, number], // Guindy
-    [12.9975, 80.2006] as [number, number], // Alandur
-    [12.9675, 80.1492] as [number, number], // Pallavaram
-    [12.9516, 80.1409] as [number, number], // Chromepet
-    [12.9230, 80.1171] as [number, number], // Tambaram
-  ],
+  annaSalai: ANNA_SALAI_GEOMETRY as [number, number][],
+  gstRoad: GST_ROAD_GEOMETRY as [number, number][],
   omr: [
-    [13.0012, 80.2565] as [number, number], // Adyar
-    [12.9654, 80.2461] as [number, number], // Perungudi
-    [12.9611, 80.2444] as [number, number], // Thoraipakkam
-    [12.9428, 80.2325] as [number, number], // Karapakkam
-    [12.9010, 80.2279] as [number, number], // Sholinganallur
-    [12.8967, 80.2256] as [number, number], // Semmencheri
+    [13.0012, 80.2565] as [number, number],
+    [12.9654, 80.2461] as [number, number],
+    [12.9611, 80.2444] as [number, number],
+    [12.9428, 80.2325] as [number, number],
+    [12.9010, 80.2279] as [number, number],
+    [12.8967, 80.2256] as [number, number],
   ]
 };
 
-// 9 key routes to display polylines for (to keep the map responsive and beautiful)
-const KEY_ROUTE_IDS = ['101', '102', '104', '23C', '21G', '29C', '18', '70', '87'];
+// 15 representative routes from dataset to display polylines for in normal/ops views
+const REPRESENTATIVE_ROUTES = [
+  '101', '102', '104', '29C', '23C', '18', '70', '87', '21G', '119', '154', '170A', '12B', '109', '47B'
+];
 
-// Custom Depot Icon Creator
+// Major Hotspots with Stop Coordinates
+const HOTSPOTS = [
+  { name: 'T Nagar Depot', coords: [13.0421, 80.2399] as [number, number] },
+  { name: 'Guindy Station', coords: [13.0067, 80.2206] as [number, number] },
+  { name: 'Broadway Terminus', coords: [13.0878, 80.2785] as [number, number] },
+  { name: 'Velachery Junction', coords: [12.9796, 80.2196] as [number, number] },
+  { name: 'Sholinganallur', coords: [12.9010, 80.2279] as [number, number] },
+  { name: 'Tambaram East', coords: [12.9230, 80.1171] as [number, number] },
+  { name: 'Koyambedu CMBT', coords: [13.0673, 80.2057] as [number, number] }
+];
+
+// Emergency View Overlay Geometries
+const VELACHERY_FLOOD_POLYGON: [number, number][] = [
+  [12.986, 80.210],
+  [12.989, 80.225],
+  [12.973, 80.231],
+  [12.966, 80.218],
+];
+
+const MUDICHUR_FLOOD_POLYGON: [number, number][] = [
+  [12.918, 80.075],
+  [12.924, 80.083],
+  [12.911, 80.086],
+  [12.906, 80.077],
+];
+
+const PALLIKARANAI_FLOOD_POLYGON: [number, number][] = [
+  [12.943, 80.205],
+  [12.951, 80.218],
+  [12.937, 80.225],
+  [12.932, 80.210],
+];
+
+// Custom Icons
 const createDepotIcon = () => {
   return L.divIcon({
     className: 'custom-depot-marker',
@@ -67,11 +92,20 @@ const createDepotIcon = () => {
   });
 };
 
-// Map settings controller
+const createClusterIcon = (count: number, routeNames: string) => {
+  return L.divIcon({
+    className: 'custom-cluster-marker',
+    html: `<div class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[#0a0a0f]/90 border-2 border-[#b388ff] text-[#b388ff] font-mono font-bold text-[10px] shadow-xl hover:scale-110 transition-all duration-200 animate-pulse" title="${routeNames}">
+      ${count}
+    </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+};
+
 function MapController() {
   const map = useMap();
   useEffect(() => {
-    // Force leaflet to invalidate size to prevent render glitches
     setTimeout(() => {
       map.invalidateSize();
     }, 200);
@@ -79,7 +113,6 @@ function MapController() {
   return null;
 }
 
-// Helper to interpolate angles smoothly (handling 360 wrap-around)
 const interpolateAngle = (current: number, target: number, lerpFactor: number) => {
   let diff = (target - current) % 360;
   if (diff < -180) diff += 360;
@@ -95,12 +128,10 @@ interface SmoothMarkerProps {
 function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
   const markerRef = useRef<L.Marker | null>(null);
   
-  // Store the current animated state in refs
   const currentLat = useRef(bus.lat);
   const currentLng = useRef(bus.lng);
   const currentHeading = useRef(bus.heading);
   
-  // Track target values from props
   const targetLat = useRef(bus.lat);
   const targetLng = useRef(bus.lng);
   const targetHeading = useRef(bus.heading);
@@ -111,26 +142,18 @@ function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
     targetHeading.current = bus.heading;
   }, [bus.lat, bus.lng, bus.heading]);
 
-  // Keep a static initial position for react-leaflet so it doesn't reset position on render
   const [initialPosition] = useState<[number, number]>(() => [bus.lat, bus.lng]);
 
   useEffect(() => {
     let animFrame: number;
-    
     const animate = () => {
       const marker = markerRef.current;
       if (marker) {
-        // Interpolate position (Uber/Ola style smooth tracking)
         currentLat.current += (targetLat.current - currentLat.current) * 0.08;
         currentLng.current += (targetLng.current - currentLng.current) * 0.08;
-        
-        // Interpolate heading (gradual turning)
         currentHeading.current = interpolateAngle(currentHeading.current, targetHeading.current, 0.08);
-        
-        // Update leaflet marker coordinate
         marker.setLatLng([currentLat.current, currentLng.current]);
         
-        // Rotate inner element
         const element = marker.getElement();
         if (element) {
           const inner = element.querySelector('.custom-bus-marker-inner') as HTMLElement;
@@ -141,7 +164,6 @@ function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
       }
       animFrame = requestAnimationFrame(animate);
     };
-    
     animFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrame);
   }, []);
@@ -154,8 +176,7 @@ function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
   };
   const typeAbbr = typeAbbrs[bus.type] || 'ORD';
 
-  // Get color and styling based on status and type
-  let borderColor = 'border-[#4a9eff]'; // running
+  let borderColor = 'border-[#4a9eff]';
   let bgColor = 'bg-[#0a0a0f]/95';
   let textColor = 'text-[#e8e8f0]';
   let glowClass = '';
@@ -195,17 +216,15 @@ function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
     }
   }
 
-  // Create DivIcon matching visual requirements: [21G] [AC] [65%]
   const icon = L.divIcon({
     className: 'custom-bus-marker-wrap',
     html: `
-      <div class="custom-bus-marker-inner relative flex items-center justify-center w-[92px] h-[22px] rounded border ${borderColor} ${bgColor} ${textColor} ${glowClass} text-[8px] font-bold font-mono tracking-tighter shadow-md">
-        <div class="bus-direction-arrow" style="border-bottom-color: ${arrowColor}"></div>
-        <span>[${bus.route}] [${typeAbbr}] [${bus.occupancy}%]</span>
+      <div class="custom-bus-marker-inner relative flex items-center justify-center w-[34px] h-[14px] rounded border ${borderColor} ${bgColor} ${textColor} ${glowClass} text-[7px] font-extrabold font-mono tracking-tighter shadow-sm">
+        <span class="leading-none text-center">${bus.route}</span>
       </div>
     `,
-    iconSize: [92, 22],
-    iconAnchor: [46, 11]
+    iconSize: [34, 14],
+    iconAnchor: [17, 7]
   });
 
   return (
@@ -221,13 +240,25 @@ function SmoothMarker({ bus, onSelectBus }: SmoothMarkerProps) {
 }
 
 export default function MapComponent({ buses, depots, layers, highlightedRoute, onSelectBus }: MapComponentProps) {
-  const position: [number, number] = [13.0827, 80.2707]; // Chennai center
+  const position: [number, number] = [13.0827, 80.2707];
   const zoom = 11;
+  const currentView = useUBOCCStore((state) => state.currentView);
+  const activeEvents = useUBOCCStore((state) => state.activeEvents);
+  const predictionTimeframe = useUBOCCStore((state) => state.predictionTimeframe);
 
-  // Filter key routes that have coordinates
-  const activeRoutes = Object.values(ROUTES).filter(
-    (r: Route) => KEY_ROUTE_IDS.includes(r.busNo) && r.coordinates && r.coordinates.length > 0
-  );
+  const [expandedClusters, setExpandedClusters] = useState<Record<string, boolean>>({});
+
+  // Use high-resolution snapped geometries from routes.ts
+  const activeRoutes = Object.values(ROUTE_MAP);
+
+  // Grouping buses for intelligent visual clustering to mitigate clutter
+  const clusters: Record<string, Bus[]> = {};
+  buses.forEach((bus) => {
+    // Generate cluster grid key (approx 500m spacing)
+    const gridKey = `${Math.round(bus.lat * 170) / 170},${Math.round(bus.lng * 170) / 170}`;
+    if (!clusters[gridKey]) clusters[gridKey] = [];
+    clusters[gridKey].push(bus);
+  });
 
   return (
     <div className="relative h-full w-full bg-[#0a0a0f] z-10">
@@ -241,27 +272,51 @@ export default function MapComponent({ buses, depots, layers, highlightedRoute, 
       >
         <MapController />
         
-        {/* Dark basemap tiles */}
         <TileLayer
           attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
 
-        {/* Route Polylines */}
-        {layers.routes && activeRoutes.map((route) => (
-          <Polyline
-            key={route.busNo}
-            positions={route.coordinates}
-            pathOptions={{
-              color: '#4a9eff',
-              weight: 2.5,
-              opacity: 0.55,
-              dashArray: '5, 5'
-            }}
-          />
-        ))}
+        {/* ── Normal View or Routes Layer: Color-Coded Categorized Routes ── */}
+        {layers.routes && activeRoutes.map((route: any) => {
+          const category = classifyRoute(
+            route.routeNumber,
+            route.name.split(' → ')[0] || 'Origin',
+            route.name.split(' → ')[1] || 'Destination',
+            route.stops.map((s: any) => s.name),
+            route.busType
+          );
+          
+          const categoryMap: Record<string, 'Feeder' | 'Ring' | 'BRT' | 'Suburban'> = {
+            feeder: 'Feeder',
+            circular: 'Ring',
+            express: 'BRT',
+            suburban: 'Suburban'
+          };
+          if (!useUBOCCStore.getState().activeRouteLayers[categoryMap[category]]) return null;
 
-        {/* Traffic Congestion Overlays */}
+          const color = getCategoryColor(category);
+          return (
+            <Polyline
+              key={route.routeNumber}
+              positions={route.waypoints.map(([lng, lat]: any) => [lat, lng])}
+              pathOptions={{
+                color: color,
+                weight: 2.5,
+                opacity: 0.75,
+                dashArray: '4, 4'
+              }}
+            >
+              <Tooltip sticky>
+                <div className="bg-[#12121a] text-[#e8e8f0] border border-[#2a2a3a] text-[10px] p-1.5 rounded uppercase font-mono">
+                  Route {route.routeNumber}: {route.name}
+                </div>
+              </Tooltip>
+            </Polyline>
+          );
+        })}
+
+        {/* ── Operations View: Traffic Congestion Corridors ── */}
         {layers.traffic && (
           <>
             <Polyline
@@ -279,28 +334,159 @@ export default function MapComponent({ buses, depots, layers, highlightedRoute, 
           </>
         )}
 
-        {/* Highlight Route Polyline After Decision */}
+        {/* ── AI View: 3-Tiered Concentric Hotspot Heatmap Layers ── */}
+        {currentView === 'ai' && HOTSPOTS.map((h) => (
+          <React.Fragment key={h.name}>
+            {/* Inner Ring: Current Demand (Red) */}
+            <Circle
+              center={h.coords}
+              radius={300}
+              pathOptions={{
+                fillColor: '#ef476f',
+                fillOpacity: 0.35,
+                color: '#ef476f',
+                weight: 1.5,
+              }}
+            />
+            {/* Middle Ring: Predicted Demand 30m (Orange) */}
+            {(predictionTimeframe === '30m' || predictionTimeframe === '1h') && (
+              <Circle
+                center={h.coords}
+                radius={600}
+                pathOptions={{
+                  fillColor: '#ff8c42',
+                  fillOpacity: 0.20,
+                  color: '#ff8c42',
+                  weight: 1.0,
+                  dashArray: '3, 3'
+                }}
+              />
+            )}
+            {/* Outer Ring: Predicted Demand 1h (Yellow) */}
+            {predictionTimeframe === '1h' && (
+              <Circle
+                center={h.coords}
+                radius={900}
+                pathOptions={{
+                  fillColor: '#ffd166',
+                  fillOpacity: 0.10,
+                  color: '#ffd166',
+                  weight: 0.8,
+                  dashArray: '4, 4'
+                }}
+              />
+            )}
+          </React.Fragment>
+        ))}
+
+        {/* ── Emergency View Overlays ── */}
+        {currentView === 'emergency' && (
+          <>
+            {/* Flood Zone 1: Velachery */}
+            <Polygon
+              positions={VELACHERY_FLOOD_POLYGON}
+              pathOptions={{
+                color: '#ef476f',
+                weight: 2,
+                fillColor: '#00e5ff',
+                fillOpacity: 0.25,
+              }}
+            >
+              <Tooltip sticky>
+                <div className="font-bold text-red-500 text-[10px]">CRITICAL FLOOD ZONE: VELACHERY BYPASS (1.5FT WATERLOGGING)</div>
+              </Tooltip>
+            </Polygon>
+
+            {/* Flood Zone 2: Mudichur */}
+            <Polygon
+              positions={MUDICHUR_FLOOD_POLYGON}
+              pathOptions={{
+                color: '#ef476f',
+                weight: 2,
+                fillColor: '#00e5ff',
+                fillOpacity: 0.25,
+              }}
+            >
+              <Tooltip sticky>
+                <div className="font-bold text-red-500 text-[10px]">CRITICAL FLOOD ZONE: MUDICHUR UNDERPASS</div>
+              </Tooltip>
+            </Polygon>
+
+            {/* Flood Zone 3: Pallikaranai */}
+            <Polygon
+              positions={PALLIKARANAI_FLOOD_POLYGON}
+              pathOptions={{
+                color: '#ef476f',
+                weight: 2,
+                fillColor: '#00e5ff',
+                fillOpacity: 0.20,
+              }}
+            >
+              <Tooltip sticky>
+                <div className="font-bold text-orange-500 text-[10px]">WARNING FLOOD ZONE: PALLIKARANAI LOW AREA</div>
+              </Tooltip>
+            </Polygon>
+
+            {/* Metro Construction Closure Pin (Kodambakkam) */}
+            {activeEvents.some(e => e.id === 'evt-kodambakkam-metro') && (
+              <Circle
+                center={[13.0472, 80.2282]}
+                radius={350}
+                pathOptions={{
+                  color: '#ff8c42',
+                  weight: 2.5,
+                  fillColor: '#ff8c42',
+                  fillOpacity: 0.35,
+                  dashArray: '4, 2',
+                }}
+              >
+                <Popup className="custom-leaflet-popup">
+                  <div className="bg-[#12121a] text-[#e8e8f0] p-2 text-xs border border-[#2a2a3a] rounded shadow-2xl">
+                    <span className="font-bold text-orange-400 block mb-1">METRO CONSTRUCTION BLOCKAGE</span>
+                    Kodambakkam High Road reduced to 1 lane. Alternate diversions recommended.
+                  </div>
+                </Popup>
+              </Circle>
+            )}
+
+            {/* Temple Festival Closure Pin (Mylapore Tank) */}
+            <Circle
+              center={[13.0330, 80.2680]}
+              radius={400}
+              pathOptions={{
+                color: '#ffd166',
+                weight: 2,
+                fillColor: '#ffd166',
+                fillOpacity: 0.25,
+              }}
+            >
+              <Tooltip sticky>
+                <div className="font-bold text-yellow-400 text-[10px]">FESTIVAL RESTRICTION: MYLAPORE TANK ROAD CLOSED</div>
+              </Tooltip>
+            </Circle>
+          </>
+        )}
+
+        {/* Highlighted Route Detour Path */}
         {highlightedRoute && (() => {
           const routeDef = ROUTE_MAP[highlightedRoute.routeNumber];
           if (!routeDef) return null;
           return (
             <>
-              {/* Glow Layer */}
               <Polyline
                 positions={routeDef.waypoints.map(([lng, lat]) => [lat, lng])}
                 pathOptions={{
                   color: highlightedRoute.color,
-                  weight: 12,
-                  opacity: 0.25,
+                  weight: 10,
+                  opacity: 0.30,
                 }}
               />
-              {/* Core Line Layer */}
               <Polyline
                 positions={routeDef.waypoints.map(([lng, lat]) => [lat, lng])}
                 pathOptions={{
                   color: highlightedRoute.color,
-                  weight: 4,
-                  opacity: 0.9,
+                  weight: 3.5,
+                  opacity: 0.95,
                   dashArray: '6, 2',
                 }}
               />
@@ -308,61 +494,7 @@ export default function MapComponent({ buses, depots, layers, highlightedRoute, 
           );
         })()}
 
-        {/* Congestion Hotspot Circles */}
-        {layers.hotspots && (
-          <>
-            {/* Chepauk */}
-            <Circle
-              center={[13.0625, 80.2800]}
-              radius={800}
-              pathOptions={{
-                fillColor: '#ef476f',
-                fillOpacity: 0.2,
-                color: '#ef476f',
-                weight: 1.5,
-                dashArray: '3, 3'
-              }}
-            />
-            {/* Guindy */}
-            <Circle
-              center={[13.0067, 80.2206]}
-              radius={1000}
-              pathOptions={{
-                fillColor: '#ef476f',
-                fillOpacity: 0.18,
-                color: '#ef476f',
-                weight: 1.5,
-                dashArray: '3, 3'
-              }}
-            />
-            {/* Koyambedu */}
-            <Circle
-              center={[13.0673, 80.2057]}
-              radius={1200}
-              pathOptions={{
-                fillColor: '#ef476f',
-                fillOpacity: 0.18,
-                color: '#ef476f',
-                weight: 1.5,
-                dashArray: '3, 3'
-              }}
-            />
-            {/* Tambaram */}
-            <Circle
-              center={[12.9230, 80.1171]}
-              radius={1100}
-              pathOptions={{
-                fillColor: '#ef476f',
-                fillOpacity: 0.18,
-                color: '#ef476f',
-                weight: 1.5,
-                dashArray: '3, 3'
-              }}
-            />
-          </>
-        )}
-
-        {/* Depot Markers */}
+        {/* Depots */}
         {layers.depots && depots.map((depot) => (
           <Marker
             key={depot.name}
@@ -372,7 +504,6 @@ export default function MapComponent({ buses, depots, layers, highlightedRoute, 
             <Popup className="custom-leaflet-popup">
               <div className="bg-[#12121a] border border-[#2a2a3a] text-[#e8e8f0] p-2.5 rounded-lg text-xs min-w-[150px] shadow-xl">
                 <div className="font-bold text-[#b388ff] mb-1 flex items-center gap-1.5 uppercase tracking-wide">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M6 20V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></svg>
                   {depot.name} Depot
                 </div>
                 <div className="text-[10px] text-[#6b6b80] mb-2">{depot.location}</div>
@@ -391,14 +522,33 @@ export default function MapComponent({ buses, depots, layers, highlightedRoute, 
           </Marker>
         ))}
 
-        {/* Smoothly Animated Snapped Bus Markers */}
-        {buses.map((bus) => (
-          <SmoothMarker
-            key={bus.id}
-            bus={bus}
-            onSelectBus={onSelectBus}
-          />
-        ))}
+        {/* ── Bus Rendering ── */}
+        {currentView !== 'normal' && buses.map((bus) => {
+          const routeDef = ROUTE_MAP[bus.route];
+          if (!routeDef) return null;
+          const category = classifyRoute(
+            routeDef.routeNumber,
+            routeDef.name.split(' → ')[0] || 'Origin',
+            routeDef.name.split(' → ')[1] || 'Destination',
+            routeDef.stops.map((s: any) => s.name),
+            routeDef.busType
+          );
+          const categoryMap: Record<string, 'Feeder' | 'Ring' | 'BRT' | 'Suburban'> = {
+            feeder: 'Feeder',
+            circular: 'Ring',
+            express: 'BRT',
+            suburban: 'Suburban'
+          };
+          if (!useUBOCCStore.getState().activeRouteLayers[categoryMap[category]]) return null;
+
+          return (
+            <SmoothMarker
+              key={bus.id}
+              bus={bus}
+              onSelectBus={onSelectBus}
+            />
+          );
+        })}
       </MapContainer>
     </div>
   );
